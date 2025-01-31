@@ -7,7 +7,7 @@ Installation
 ------------
 
 1. Install [Deno].
-2. `deno install --allow-read --allow-net jsr:@diskuto/rss-sync`
+2. `deno install --allow-read --allow-net --deny-env jsr:@diskuto/rss-sync`
 
 Setup & Use
 -----------
@@ -21,7 +21,7 @@ Setup & Use
    grant them write access to that server.
 
 3. Run `rss-sync updateProfiles` once, to create/update a Diskuto profile for each
-   blog.
+   RSS feed.
 
 4. Periodically run `rss-sync sync` to fetch new news.
 

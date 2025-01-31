@@ -38,23 +38,7 @@ async function mainCommand(options: MainOptions): Promise<void> {
     
     log.debug(`server URL: ${config.diskutoApi}`)
     const client = new diskuto.Client({baseUrl: config.diskutoApi})
-    
-    if (!config.feeds) {
-        log.error("No feeds defined in config file:", options.config)
-        Deno.exit(1)
-    }
-    
-    if (options.profiles) {
-        for (const feedConfig of config.feeds) {
-            await errorContext(
-                `Updating profile for ${feedConfig.name || feedConfig.rssUrl}`,
-                () => updateProfile(feedConfig, client)
-            )
-        }
-        log.info("")
-        log.info("Profile sync completed. Now run without `--profiles` to sync posts.")
-        return
-    }
+
     
     const errors = []
     
@@ -74,6 +58,22 @@ async function mainCommand(options: MainOptions): Promise<void> {
     
     if (errors.length > 0) {
         Deno.exit(1)
+    }
+}
+
+async function updateProfilesCommand(options: UpdateProfilesOpts) {
+    const config = await errorContext(
+        `Reading ${options.config}`,
+        () => loadConfig(options.config)
+    )
+    log.debug(`server URL: ${config.diskutoApi}`)
+    const client = new diskuto.Client({baseUrl: config.diskutoApi})
+
+    for (const feed of config.feeds) {
+        await errorContext(
+            `Updating profile for ${feed.name || feed.rssUrl}`,
+            () => updateProfile(feed, client)
+        )
     }
 }
 
@@ -97,19 +97,28 @@ async function inspectCommand(opts: InspectOpts, ...[url]: InspectArgs): Promise
 type CommandOptions<C> = C extends Command<infer T1, infer T2, infer T3, infer T4, infer T5, infer T6, infer T7, infer T8> ? T3 : never
 type CommandArgs<C> = C extends Command<infer T1, infer T2, infer T3, infer T4, infer T5, infer T6, infer T7, infer T8> ? T4 : never
 
+const DEFAULT_CONFIG = "rss-sync.toml"
+
 type MainOptions = CommandOptions<typeof mainCmd>
 const mainCmd = new Command()
-.name("sync")
-.description("sync the RSS feed into Diskuto")
-// TODO: Refactor this to be a separate sub-command.
-.option("--profiles", "Should we set profiles for these feeds? (Only need to do once.)", {
-    default: false
-})
+    .name("sync")
+    .description("sync the RSS feed into Diskuto")
+    .option("--config <string>", "The path to the config file", {
+        default: DEFAULT_CONFIG
+    })
+    .action(mainCommand)
 
-.option("--config <string>", "The path to the config file", {
-    default: "rss-sync.toml",
-})
-.action(mainCommand)
+type UpdateProfilesOpts = CommandOptions<typeof updateProfilesCmd>
+const updateProfilesCmd = new Command()
+    .name("updateProfiles")
+    .description(
+        "Create/Update profiles for each feed."
+        + "\nRun this once after editing your config file."
+    )
+    .option("--config <string>", "The path to the config file", {
+        default: DEFAULT_CONFIG,
+    })
+    .action(updateProfilesCommand)
 
 type InspectArgs = CommandArgs<typeof inspectCmd>
 type InspectOpts = CommandOptions<typeof inspectCmd>
@@ -124,8 +133,9 @@ const command = new Command()
     .name("rss-sync")
     .description("Sync RSS feeds to Diskuto")
     .default("help")
-    .command("sync", mainCmd)
-    .command("inspect", inspectCmd)
+    .command(mainCmd.getName(), mainCmd)
+    .command(updateProfilesCmd.getName(), updateProfilesCmd)
+    .command(inspectCmd.getName(), inspectCmd)
     .command("help", new Command().action(() => {
         command.showHelp()
     }))
@@ -190,7 +200,7 @@ async function updateProfile(feedConfig: Feed, client: diskuto.Client) {
     const profileText = [
         `Posts from <${feedConfig.rssUrl}>`,
         "",
-        "Sync'd by [rss2fb](https://deno.land/x/rss2fb)",
+        "Sync'd by [@diskuto/rss-sync](https://jsr.io/@diskuto/rss-sync)",
     ].join("\n")
     
     const userID = feedConfig.userId
@@ -198,7 +208,7 @@ async function updateProfile(feedConfig: Feed, client: diskuto.Client) {
     if (result) {
         const profile = result.item.itemType.value
         if (profile.displayName == displayName && profile.about == profileText) {
-            log.info("Profile already updated for", displayName)
+            log.info("No changes for", displayName)
             return
         }
     }
@@ -218,7 +228,7 @@ async function updateProfile(feedConfig: Feed, client: diskuto.Client) {
     const itemBytes = toBinary(ItemSchema, item)
     const sig = privKey.sign(itemBytes)
     await client.putItem(userID, sig, itemBytes)
-    log.info("Updated profile for", displayName)
+    log.info("Updated", displayName)
 }
 
 const ONE_WEEK_MS = 1000 * 60 * 60 * 24 * 7;
@@ -372,16 +382,16 @@ function addGUID(markdown: string, guid: string): string {
     return (
         markdown.trimEnd()
         + "\n\n"
-        + `<!-- GUID: "${noQuotes(guid)}" -->`
+        + `<!-- GUID: "${normalizeGUID(guid)}" -->`
     )
 }
 
-// Just remove quotes from GUIDs instead of escaping them:
-function noQuotes(value: string|undefined): string {
+function normalizeGUID(value: string|undefined): string {
     // We seem to be getting "undefined" from MotherJones. Maybe they're not specifying the GUID?
     // Quick hacks to let it through. No GUIDs for you.
     if (!value) { return "undefined" }
     
+    // Remove " from GUIDs because we enclose them in quotes.
     // also remove > to prevent breaking out of our HTML <!-- comment -->:
     return value.replaceAll(/[">]/g, "")
 }
