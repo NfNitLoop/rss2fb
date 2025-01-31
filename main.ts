@@ -1,14 +1,6 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --deny-env
 
-/**
- * A script for reading RSS feeds and pushing them into [Diskuto].
- * 
- * [Diskuto]: https://github.com/diskuto/
- * 
- * @module
- */
-
-import { load as loadConfig, Feed } from "./src/config.ts"
+import { load as loadConfig, type Feed } from "./src/config.ts"
 import { errorContext, Logger } from "./src/logging.ts"
 import * as diskuto from "@diskuto/client"
 import * as rss from "@mikaelporttila/rss"
