@@ -92,17 +92,14 @@ function genKeysCommand(_opts: unknown, ...args: GenKeysArgs) {
             secretKey, 
         })
     }
-
-    const stringed = feeds.map(f => {
-        return {
-            ...f,
-            userId: f.userId.asBase58,
-            secretKey: f.secretKey.asBase58
-        }
-    })
-
     const tomlOut = {
-        feeds: stringed
+        feeds: feeds.map(f => {
+            return {
+                ...f,
+                userId: f.userId.asBase58,
+                secretKey: f.secretKey.asBase58
+            }
+        })
     }
 
     console.log(toml.stringify(tomlOut))
