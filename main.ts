@@ -18,6 +18,7 @@ import * as html from "jsr:@std/html@1/entities"
 import { htmlToMarkdown } from "./src/markdown.ts";
 import { Command } from "@cliffy/command";
 import { create, ItemSchema, PostSchema, ProfileSchema, toBinary } from "@diskuto/client/types";
+import * as toml from "@std/toml"
 
 const log = new Logger();
 
@@ -77,6 +78,36 @@ async function updateProfilesCommand(options: UpdateProfilesOpts) {
     }
 }
 
+function genKeysCommand(_opts: unknown, ...args: GenKeysArgs) {
+    const [count] = args
+
+    const feeds: Feed[] = []
+
+    for (let i = 0; i < count; i++) {
+        const secretKey = diskuto.PrivateKey.createNew()
+        feeds.push({
+            name: "TODO", 
+            rssUrl: "TODO",
+            userId: secretKey.userID,
+            secretKey, 
+        })
+    }
+
+    const stringed = feeds.map(f => {
+        return {
+            ...f,
+            userId: f.userId.asBase58,
+            secretKey: f.secretKey.asBase58
+        }
+    })
+
+    const tomlOut = {
+        feeds: stringed
+    }
+
+    console.log(toml.stringify(tomlOut))
+}
+
 async function inspectCommand(opts: InspectOpts, ...[url]: InspectArgs): Promise<void> {
     const {limit} = opts
     
@@ -120,6 +151,16 @@ const updateProfilesCmd = new Command()
     })
     .action(updateProfilesCommand)
 
+type GenKeysArgs = CommandArgs<typeof genKeysCmd>
+const genKeysCmd = new Command()
+    .name("genKeys")
+    .description(
+        "Generate new userId/secretKey pairs for new feeds."
+        + "\nOutputs toml placeholders that you can copy/paste into your config file."
+    )
+    .arguments<[number]>("<count:number>")
+    .action(genKeysCommand)
+
 type InspectArgs = CommandArgs<typeof inspectCmd>
 type InspectOpts = CommandOptions<typeof inspectCmd>
 const inspectCmd = new Command()
@@ -135,6 +176,7 @@ const command = new Command()
     .default("help")
     .command(mainCmd.getName(), mainCmd)
     .command(updateProfilesCmd.getName(), updateProfilesCmd)
+    .command(genKeysCmd.getName(), genKeysCmd)
     .command(inspectCmd.getName(), inspectCmd)
     .command("help", new Command().action(() => {
         command.showHelp()
