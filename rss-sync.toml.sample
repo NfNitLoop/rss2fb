@@ -1,0 +1,24 @@
+# Which Diskuto server should we push new posts to?
+diskutoApi = "https://blog.nfnitloop.com"
+
+[[feeds]]
+name = "New York Times Top Stories"
+rssUrl = "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+
+# Each feed needs a different userId and secret key, so that
+# their sync state remains independent, and you/others can
+# follow each one independently.
+userId = "6fS2V5673fw3cq8Tq6xggyfN8ztETf3WNmfDybxtRyU2"
+secretKey = ""
+
+[[feeds]]
+name = "The Verge"
+rssUrl = "https://www.theverge.com/rss/index.xml"
+userId = "HTh8BHca5fWukV78Lkgd4R73a4DmwciJuLgxkwPMv8su"
+secretKey = ""
+
+[[feeds]]
+name = "Kotaku"
+rssUrl = "https://kotaku.com/rss"
+userId = "8tUsPDYGiWzKW1ZNUBgU9A1XRZa1f2YBUbJGxScVwbtZ"
+secretKey = ""

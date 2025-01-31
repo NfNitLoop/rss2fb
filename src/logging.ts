@@ -1,37 +1,34 @@
-// deno-lint-ignore-file no-explicit-any
-// (Because AFAIK console.log() functions take `any`.)
-
 export type LogLevel = "error"|"warn"|"info"|"debug"|"trace"
 
 // A logger with .log() methods that are compatible with console.log(...) signature.
 export class Logger {
 
     /** Log unconditionally  */
-    log(...args: any[]) {
+    log(...args: unknown[]) {
         console.log(...args)
     }
 
-    error(...args: any[]) {
+    error(...args: unknown[]) {
         if (this.levelNum < 1) { return }
         this.log("ERROR:", ...args)
     }
-    warn(...args: any[]) {
+    warn(...args: unknown[]) {
         if (this.levelNum < 2) { return }
         this.log("WARN:", ...args)
     }
 
-    info(...args: any[]) {
+    info(...args: unknown[]) {
         if (this.levelNum < 3) { return }
         // Note: INFO is the default log level, so we don't prefix it:
         this.log(...args)
     }
 
-    debug(...args: any[]) {
+    debug(...args: unknown[]) {
         if (this.levelNum < 4) { return }
         this.log("DEBUG:", ...args)
     }
 
-    trace(...args: any[]) {
+    trace(...args: unknown[]) {
         if (this.levelNum < 5) { return }
         this.log("TRACE:", ...args)
     }
@@ -85,8 +82,8 @@ export async function errorContext<T>(message: string, callback: () => Promise<T
 
 class ErrorContext {
     contextMessage: string
-    cause: any
-    constructor(message: string, cause: any) {
+    cause: unknown
+    constructor(message: string, cause: unknown) {
         this.contextMessage = message
         this.cause = cause
     }

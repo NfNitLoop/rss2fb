@@ -1,28 +1,30 @@
-RSS to FeoBlog
+rss-sync
 ==============
 
-This is a rewrite of <https://github.com/NfNitLoop/fb-rss> in JavaScript, for [Deno].
-
-Run this script periodically to make RSS feeds available in your [FeoBlog] feed.
+Run this script periodically to make RSS feeds available in your [Diskuto] feed.
 
 Installation
 ------------
 
 1. Install [Deno].
-2. `deno install --allow-read --allow-net https://deno.land/x/rss2fb/rss2fb.ts`
+2. `deno install --allow-read --allow-net jsr:@diskuto/rss-sync`
 
-Configuration
--------------
+Setup & Use
+-----------
 
-Create an `rss2feoblog.toml` in your current directory, following the [sample].
+1. Create an `rss-sync.toml` in your current directory, following the [sample].
 
-You can create new userIDs on your [FeoBlog] "Log In"/"Change User" page. Make
-sure to follow them or add them as users on your FeoBlog server so they have
-permission to post.
+   You can use the `rss-sync genKeys` command to generate new userIDs for each blog.
+   (Each should use a separate key so that their sync state remains independent.)
 
-Then run `rss2fb`, and go refresh your feed. 😊
+2. Make sure to follow those IDs from a user on your Diskuto server. This will
+   grant them write access to that server.
 
+3. Run `rss-sync updateProfiles` once, to create/update a Diskuto profile for each
+   blog.
 
-[Deno]: https://deno.land/
-[FeoBlog]: https://github.com/NfNitLoop/feoblog
-[sample]: ./rss2feoblog.toml.sample
+4. Periodically run `rss-sync sync` to fetch new news.
+
+[Deno]: https://deno.com/
+[Diskuto]: https://github.com/diskuto/
+[sample]: ./rss-sync.toml.sample

@@ -1,5 +1,4 @@
-
-import { nhm } from "./deps.ts";
+import * as nhm from "node-html-markdown"
 
 // node-html-markdown is the best html-to-markdown parser I've found that
 // works with Deno at the moment.
