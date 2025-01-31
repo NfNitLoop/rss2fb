@@ -1,3 +1,6 @@
+[![JSR Version]][JSR Link]
+
+
 rss-sync
 ==============
 
@@ -28,3 +31,5 @@ Setup & Use
 [Deno]: https://deno.com/
 [Diskuto]: https://github.com/diskuto/
 [sample]: ./rss-sync.toml.sample
+[JSR Version]: https://jsr.io/badges/@diskuto/rss-sync
+[JSR Link]: https://jsr.io/@diskuto/rss-sync
