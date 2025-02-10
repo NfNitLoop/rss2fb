@@ -1,35 +1,39 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --deny-env
 
 import { load as loadConfig, type Feed } from "./src/config.ts"
-import { errorContext, Logger } from "./src/logging.ts"
+import { errorContext } from "./src/logging.ts"
 import * as diskuto from "@diskuto/client"
 import * as rss from "@mikaelporttila/rss"
 import * as html from "jsr:@std/html@1/entities"
 
 
 import { htmlToMarkdown } from "./src/markdown.ts";
-import { Command } from "@cliffy/command";
+import { Command, EnumType } from "@cliffy/command";
 import { create, ItemSchema, PostSchema, ProfileSchema, toBinary } from "@diskuto/client/types";
 import * as toml from "@std/toml"
+import * as lt from "@logtape/logtape"
+import type { LogLevel } from "@logtape/logtape";
 
-const log = new Logger();
+const log = lt.getLogger("rss-sync")
 
 async function main(): Promise<void> {
     await command.parse()
 }
 
-async function mainCommand(options: MainOptions): Promise<void> {    
-    log.debug("options:", options)
+async function syncCommand(options: MainOptions): Promise<void> {  
+    const logLevel = options.trace ? "trace" : options.debug ? "debug" : "info"
+    await configureLogging(logLevel)
+    log.debug("options: {options}", { options })
     
-    log.debug("Log level:", log.level)
+    log.debug(`Log level: {logLevel}`, {logLevel} )
     
-    log.debug("Loading config from:", options.config)
+    log.debug("Loading config from {filePath}", {filePath: options.config})
     const config = await errorContext(
         `Reading ${options.config}`,
         () => loadConfig(options.config)
     )
     
-    log.debug(`server URL: ${config.diskutoApi}`)
+    log.debug(`server URL: {url}`, {url: config.diskutoApi})
     const client = new diskuto.Client({baseUrl: config.diskutoApi})
 
     
@@ -44,12 +48,13 @@ async function mainCommand(options: MainOptions): Promise<void> {
                 () => syncFeed(feedConfig, client)
             )
         } catch (error) {
-            log.error(error)
+            log.error("Error: {error}", {error})
             errors.push(error)
         }
     }
     
     if (errors.length > 0) {
+        log.error("{count} errors during sync.", {count: errors.length})
         Deno.exit(1)
     }
 }
@@ -98,6 +103,8 @@ function genKeysCommand(_opts: unknown, ...args: GenKeysArgs) {
 }
 
 async function inspectCommand(opts: InspectOpts, ...[url]: InspectArgs): Promise<void> {
+    await configureLogging()
+
     const {limit} = opts
     
     const feed = await readRSS(url)
@@ -119,14 +126,20 @@ type CommandArgs<C> = C extends Command<infer T1, infer T2, infer T3, infer T4, 
 
 const DEFAULT_CONFIG = "rss-sync.toml"
 
+const logLevel = new EnumType(["info", "trace", "debug", "warn", "error"])
+
+
 type MainOptions = CommandOptions<typeof mainCmd>
 const mainCmd = new Command()
+    .type("logLevel", logLevel)
     .name("sync")
     .description("sync the RSS feed into Diskuto")
     .option("--config <string>", "The path to the config file", {
         default: DEFAULT_CONFIG
     })
-    .action(mainCommand)
+    .option("--debug", "enable debug logging")
+    .option("--trace", "enable trace logging")
+    .action(syncCommand)
 
 type UpdateProfilesOpts = CommandOptions<typeof updateProfilesCmd>
 const updateProfilesCmd = new Command()
@@ -176,7 +189,7 @@ const command = new Command()
 const MAX_FEED_ITEMS = 200
 
 async function syncFeed(feedConfig: Feed, client: diskuto.Client) {
-    log.info(`Syncing Feed: ${feedConfig.name || feedConfig.rssUrl}`)
+    log.info(`Syncing Feed: {name}`, {name: feedConfig.name})
     const userID = feedConfig.userId
     
     const feed = await readRSS(feedConfig.rssUrl)
@@ -188,42 +201,37 @@ async function syncFeed(feedConfig: Feed, client: diskuto.Client) {
     }
     
     if (itemsToStore.length == 0) {
-        log.warn("Feed had no items:", feedConfig.name)
+        log.warn("Feed had no items", {feedName: feedConfig.name})
         return
     }
-    log.debug("Found", itemsToStore.length, "in RSS feed")
+    log.debug("Found {count} items in RSS feed", {count: itemsToStore.length})
     
     // Sort oldest first. We'll sync oldest first to make resuming work better.
     itemsToStore.sort(FeedItem.sortByDate)
     
     // Filter out duplicates by GUID:
     const oldestTimestamp = itemsToStore[0].timestampMsUTC
-    const seenGUIDs = await log.time("getSeenGuids()", () => getSeenGUIDs(client, userID, oldestTimestamp))
-    log.debug("Found", seenGUIDs.size, "GUIDs")
+    log.debug("Calling getSeenGuids()...")
+    const seenGUIDs = await getSeenGUIDs(client, userID, oldestTimestamp)
+    log.debug("Found {count} preexisting GUIDs", {count: seenGUIDs.size})
     itemsToStore = itemsToStore.filter(i => !seenGUIDs.has(i.guid))
-    log.debug(itemsToStore.length, "new items remain to be posted")
+    log.debug("After filtering, {count} new items remain to be posted", {count: itemsToStore.length})
     if (itemsToStore.length == 0) {
         return
     }
     
     // PUT items, finally!  Yay!
     const privKey = feedConfig.secretKey
-    await log.time("PUT Items", async () => {
-        for (const item of itemsToStore) {
-            const bytes = item.toProtobuf()
-            const sig = privKey.sign(bytes)
-            await client.putItem(userID, sig, bytes)
-        }
-    })
+    for (const item of itemsToStore) {
+        const bytes = item.toProtobuf()
+        const sig = privKey.sign(bytes)
+        await client.putItem(userID, sig, bytes)
+        log.debug(`Stored item: {guid}`, {guid: item.guid})
+    }
 
     log.info(`Stored ${itemsToStore.length} new items.`)
 }
 
-// Work around: https://github.com/MikaelPorttila/rss/issues/32
-function asString(s: string|undefined): string|undefined {
-    if (typeof s === "string") return s
-    return undefined
-}
 
 async function updateProfile(feedConfig: Feed, client: diskuto.Client) {
     const displayName = feedConfig.name
@@ -239,7 +247,7 @@ async function updateProfile(feedConfig: Feed, client: diskuto.Client) {
     if (result) {
         const profile = result.item.itemType.value
         if (profile.displayName == displayName && profile.about == profileText) {
-            log.info("No changes for", displayName)
+            log.info("No changes for", {displayName})
             return
         }
     }
@@ -259,7 +267,7 @@ async function updateProfile(feedConfig: Feed, client: diskuto.Client) {
     const itemBytes = toBinary(ItemSchema, item)
     const sig = privKey.sign(itemBytes)
     await client.putItem(userID, sig, itemBytes)
-    log.info("Updated", displayName)
+    log.info("Updated", {displayName})
 }
 
 const ONE_WEEK_MS = 1000 * 60 * 60 * 24 * 7;
@@ -279,7 +287,7 @@ async function getSeenGUIDs(client: diskuto.Client, userID: diskuto.UserID, olde
         if (entry.timestampMsUtc < cutoff) { break }
         
         const sig = diskuto.Signature.fromBytes(entry.signature!.bytes)
-        log.trace(`Item sig: ${entry.timestampMsUtc} ${sig}`)
+        log.debug(`Item sig:`, {ts: entry.timestampMsUtc, sig: sig.asBase58})
         
         const item = await client.getItem(userID, sig)
         if (item?.itemType.case != "post") { continue }
@@ -353,7 +361,6 @@ class FeedItem {
     static fromEntry(item: rss.FeedEntry): FeedItem | null {
 
         const guid = item.id
-        log.trace('guid', guid)
 
         // Some blogs may only publish a modified date.
         // We'll prefer published, because we're not going to update
@@ -361,14 +368,10 @@ class FeedItem {
         const published = item.published ?? item["dc:modified"]
         
         if (!published) {
-            log.warn(`Item does not have a published or modified date. Skipping`, guid)
+            log.warn(`Item does not have a published or modified date. Skipping`, {guid})
             return null
         }
 
-        log.trace("title", item.title)
-        log.trace("published", published)
-        log.trace("content_html", item.content)
-        log.trace("summary", item.description)
         
         const body = item.content ?? item.description
         let markdown = htmlToMarkdown(body?.value)
@@ -376,13 +379,9 @@ class FeedItem {
 
         const url = item.links[0]?.href
         if (url) { 
-            log.trace("url", url)
             markdown = addURL(markdown, url)
         }
         markdown = addGUID(markdown, item.id)
-        
-        log.trace("markdown:", markdown)
-        log.trace("----")
         
         return new FeedItem({
             guid,
@@ -446,7 +445,7 @@ function findGUID(markdown: string): string|null {
 async function readRSS(url: string): Promise<rss.Feed> {
     const response = await fetch(url);
     const xml = await response.text();
-    log.trace("xml:", xml)
+    log.debug("xml: {xml}", {xml, trace: true})
     return await rss.parseFeed(xml);
 }
 
@@ -460,6 +459,31 @@ function getText(field: TextField|undefined): string|undefined {
         return html.unescape(value)
     }
     return value
+}
+
+
+async function configureLogging(logLevel: LogLevel|"trace" = "debug") {
+    const traceEnabled = logLevel == "trace"
+    await lt.configure({
+        loggers: [
+            { 
+                // This seems to act as a root category (which is handy!)
+                // ... but I don't see it documented anywhere.
+                category: [],
+
+                lowestLevel: logLevel == "trace" ? "debug" : logLevel,
+                sinks: ["console"],
+                filters: ["trace"]
+            },
+            { category: ["logtape", "meta"], lowestLevel: "warning" },
+        ],
+        sinks: {
+            console: lt.getConsoleSink(),
+        },
+        filters: {
+            trace: (rec) => traceEnabled || rec.properties.trace !== true
+        }
+    })
 }
 
 
