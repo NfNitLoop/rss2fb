@@ -26,7 +26,7 @@
     },
     "imports": {
         "@cliffy/command": "jsr:@cliffy/command@1.0.0-rc.7",
-        "@diskuto/client": "jsr:@diskuto/client@^0.10.0",
+        "@diskuto/client": "jsr:@diskuto/client@^0.10.2",
         "@logtape/logtape": "jsr:@logtape/logtape@^0.8.1",
         "@mikaelporttila/rss": "jsr:@mikaelporttila/rss@^1.1.1",
         "@std/toml": "jsr:@std/toml@^1.0.2",

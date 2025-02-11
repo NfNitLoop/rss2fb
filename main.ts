@@ -13,6 +13,7 @@ import { create, ItemSchema, PostSchema, ProfileSchema, toBinary } from "@diskut
 import * as toml from "@std/toml"
 import * as lt from "@logtape/logtape"
 import type { LogLevel } from "@logtape/logtape";
+import { Aborter } from "./src/aborter.ts";
 
 const log = lt.getLogger("rss-sync")
 
@@ -34,7 +35,7 @@ async function syncCommand(options: MainOptions): Promise<void> {
     )
     
     log.debug(`server URL: {url}`, {url: config.diskutoApi})
-    const client = new diskuto.Client({baseUrl: config.diskutoApi})
+    const client = new diskuto.Client({baseUrl: config.diskutoApi, userAgent: "rss-sync"})
 
     
     const errors = []
@@ -65,7 +66,7 @@ async function updateProfilesCommand(options: UpdateProfilesOpts) {
         () => loadConfig(options.config)
     )
     log.debug(`server URL: ${config.diskutoApi}`)
-    const client = new diskuto.Client({baseUrl: config.diskutoApi})
+    const client = new diskuto.Client({baseUrl: config.diskutoApi, userAgent: "rss-sync"})
 
     for (const feed of config.feeds) {
         await errorContext(
@@ -219,14 +220,27 @@ async function syncFeed(feedConfig: Feed, client: diskuto.Client) {
     if (itemsToStore.length == 0) {
         return
     }
+
+    const MAX_SIZE = 32_000
     
     // PUT items, finally!  Yay!
     const privKey = feedConfig.secretKey
     for (const item of itemsToStore) {
         const bytes = item.toProtobuf()
+        if (bytes.length > MAX_SIZE) {
+            log.warn("Skipping item {guid}. Too big. ({size} bytes)", {guid: item.guid, size: bytes.length})
+            continue
+        }
         const sig = privKey.sign(bytes)
-        await client.putItem(userID, sig, bytes)
-        log.debug(`Stored item: {guid}`, {guid: item.guid})
+        log.debug(`Storing item: {guid} {sig}`, {guid: item.guid, sig: sig.asBase58})
+
+        try {
+            await client.putItem(userID, sig, bytes)
+        } catch (e) {
+            log.error("Error posting {guid}, {bytes} bytes", {guid: item.guid, bytes: bytes.length})
+            log.debug(`body:\n${item.markdown}`, {trace: true})
+            throw e
+        }
     }
 
     log.info(`Stored ${itemsToStore.length} new items.`)
@@ -287,7 +301,7 @@ async function getSeenGUIDs(client: diskuto.Client, userID: diskuto.UserID, olde
         if (entry.timestampMsUtc < cutoff) { break }
         
         const sig = diskuto.Signature.fromBytes(entry.signature!.bytes)
-        log.debug(`Item sig:`, {ts: entry.timestampMsUtc, sig: sig.asBase58})
+        log.debug(`Fetching tem sig: {ts} {sig}`, {ts: entry.timestampMsUtc, sig: sig.asBase58, trace: true})
         
         const item = await client.getItem(userID, sig)
         if (item?.itemType.case != "post") { continue }
@@ -361,6 +375,13 @@ class FeedItem {
     static fromEntry(item: rss.FeedEntry): FeedItem | null {
 
         const guid = item.id
+
+        // See: https://github.com/MikaelPorttila/rss/issues/61
+        if (!guid) {
+            log.warn("Skipping item lacking a guid")
+            log.debug("item: {item}", {item, trace: true})
+            return null
+        }
 
         // Some blogs may only publish a modified date.
         // We'll prefer published, because we're not going to update
@@ -443,11 +464,14 @@ function findGUID(markdown: string): string|null {
 }
 
 async function readRSS(url: string): Promise<rss.Feed> {
-    const response = await fetch(url);
+    using abort = new Aborter({timeoutMs: TEN_MINUTES_MS})
+    const response = await abort.fetch(url);
     const xml = await response.text();
     log.debug("xml: {xml}", {xml, trace: true})
     return await rss.parseFeed(xml);
 }
+
+const TEN_MINUTES_MS = 10 * 60 * 1000
 
 type TextField = rss.Feed["title"]
 
